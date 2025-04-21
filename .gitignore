@@ -1,0 +1,8 @@
+# Ignore virtual environemtns
+venv
+.venv
+__pycache__
+
+
+# Don't share environment api keys or passwords
+.env
