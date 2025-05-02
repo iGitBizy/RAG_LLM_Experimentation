@@ -1,6 +1,5 @@
 
-# updates
-
+# updated version of eval.py script fixes the the attention to mask warning. 
 
 import os
 import torch
@@ -63,28 +62,51 @@ def run_mistral_query(query_text: str) -> str:
         tokenizer.pad_token = tokenizer.eos_token
         
         # Format input in the Mistral chat format with attention mask
-        input_ids = tokenizer.apply_chat_template(
-            messages, 
+        # input_ids = tokenizer.apply_chat_template(
+        #     messages, 
+        #     return_tensors="pt",
+        #     padding=True, #Enable padding
+        #     max_length = 32768, #set max lenght for truncation
+        #     truncation=True, # Handle longer inputs
+        #     return_attention_mask=True  # Explicitly request attention mask
+        # ).to(model.device)
+        
+        chat_prompt = tokenizer.apply_chat_template(messages, tokenize=False)
+        if not isinstance(chat_prompt, str):
+            chat_prompt = str(chat_prompt)
+        
+        encoded_input = tokenizer(
+            chat_prompt,
             return_tensors="pt",
-            padding=True, #Enable padding
-            max_length = 32768, #set max lenght for truncation
-            truncation=True, # Handle longer inputs
-            return_attention_mask=True  # Explicitly request attention mask
-        ).to(model.device)
+            padding=True,
+            truncation=True,
+            max_length = 32768
+        )        
+        
+        input_ids = encoded_input["input_ids"].to(model.device)
+        attention_mask = encoded_input["attention_mask"].to(model.device)
+    
         
         # Generate response with explicit pad token setting
         with torch.no_grad():
             generated_ids = model.generate(
-                input_ids,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
                 max_new_tokens=512,
                 temperature=0.7,
                 top_p=0.95,
                 do_sample=True,
-                pad_token_id=tokenizer.eos_token_id # Explicity set pad token
+                pad_token_id =tokenizer.pad_token_id # Explicity set pad token
             )
             
+        
+        
         # Decode and return response, skipping the input
-        response = tokenizer.batch_decode(generated_ids[:, input_ids.shape[1]:], skip_special_tokens=True)[0]
+        response = tokenizer.batch_decode(
+            generated_ids[:, input_ids.shape[1]:], 
+            skip_special_tokens=True
+        )[0]
+        
         return response.strip()
         
     except Exception as exc:
@@ -179,6 +201,13 @@ df_results = pd.DataFrame({
 })
 
 df_results.to_csv("mistral_evaluation_results_v2.csv", index=False)
+
+
+
+
+
+
+
 
 
 
