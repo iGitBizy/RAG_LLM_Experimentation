@@ -42,77 +42,72 @@ except Exception as e:
 
 def run_mistral_query(query_text: str) -> str:
     """
-    Process a query through the Mistral model and return the generated response.
-    
+    Generates a response from a Mistral-based LLM given a user query, using proper formatting,
+    tokenization, attention mask, and pad token settings to ensure stable generation behavior.
+
     Args:
-        query_text (str): The input query to process
-        
+        query_text (str): The input prompt to pass to the LLM in chat format.
+
     Returns:
-        str: The model's response to the query
+        str: The model's text response.
     """
     try:
+        # Ensure model and tokenizer are loaded
         if model is None or tokenizer is None:
             raise ValueError("Model or tokenizer not loaded correctly")
-            
-        messages = [
-            {"role": "user", "content": query_text}
-        ]
-        
-        # Set EOS token as pad token
-        tokenizer.pad_token = tokenizer.eos_token
-        
-        # Format input in the Mistral chat format with attention mask
-        # input_ids = tokenizer.apply_chat_template(
-        #     messages, 
-        #     return_tensors="pt",
-        #     padding=True, #Enable padding
-        #     max_length = 32768, #set max lenght for truncation
-        #     truncation=True, # Handle longer inputs
-        #     return_attention_mask=True  # Explicitly request attention mask
-        # ).to(model.device)
-        
+
+        # Prepare chat-style message using Mistral-compatible format
+        messages = [{"role": "user", "content": query_text}]
+
+        # Ensure tokenizer has a pad token; fallback to eos_token if necessary
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+
+        # STEP 1: Format the chat message using Mistral's special chat template
+        # This outputs a plain string like: "[INST] your prompt here [/INST]"
         chat_prompt = tokenizer.apply_chat_template(messages, tokenize=False)
+
+        # Sanity check: convert to string in case the return type is not a str
         if not isinstance(chat_prompt, str):
             chat_prompt = str(chat_prompt)
-        
+
+        # STEP 2: Tokenize the formatted prompt to produce input_ids and attention_mask
         encoded_input = tokenizer(
             chat_prompt,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length = 32768
-        )        
-        
+            return_tensors="pt",     # Return PyTorch tensors
+            padding=True,            # Add padding where needed
+            truncation=True,         # Truncate if input is too long
+            max_length=32768         # Support large prompts
+        )
+
+        # Move input tensors to the same device as the model (e.g., GPU if available)
         input_ids = encoded_input["input_ids"].to(model.device)
         attention_mask = encoded_input["attention_mask"].to(model.device)
-    
-        
-        # Generate response with explicit pad token setting
-        with torch.no_grad():
+
+        # STEP 3: Run the model's text generation
+        with torch.no_grad():  # Disable gradient tracking for inference
             generated_ids = model.generate(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                max_new_tokens=512,
-                temperature=0.7,
-                top_p=0.95,
-                do_sample=True,
-                pad_token_id =tokenizer.pad_token_id # Explicity set pad token
+                input_ids=input_ids,                  # Prompt tokens
+                attention_mask=attention_mask,        # Proper attention handling
+                max_new_tokens=512,                   # Limit response length
+                temperature=0.7,                      # Controls randomness (lower = safer)
+                top_p=0.95,                           # Nucleus sampling cutoff
+                do_sample=True,                       # Enable sampling (vs. greedy decoding)
+                pad_token_id=tokenizer.pad_token_id   # Use defined pad token
             )
-            
-        
-        
-        # Decode and return response, skipping the input
+
+        # STEP 4: Decode the model's output, skipping the prompt portion
+        # generated_ids[:, input_ids.shape[1]:] trims off the original input
         response = tokenizer.batch_decode(
-            generated_ids[:, input_ids.shape[1]:], 
+            generated_ids[:, input_ids.shape[1]:],
             skip_special_tokens=True
         )[0]
-        
-        return response.strip()
-        
+
+        return response.strip()  # Remove leading/trailing whitespace
+
     except Exception as exc:
         logging.error(f"Error processing query with Mistral: {exc}")
-        logging.exception(exc)
-        raise exc
+        raise  # Re-raise exception for external handling
 
 
 ######################### Print model configuration #########################
